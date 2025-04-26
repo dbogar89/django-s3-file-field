@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from django.core import checks
-from django.db.models.fields.files import FileField
+from django.db.models.fields.files import FileField, FieldFile
 
 from ._multipart import MultipartManager
 from ._registry import register_field
@@ -98,7 +98,22 @@ class S3FileField(FileField):
         # However, we don't want the S3FileInput or S3FormFileField to emit a string value,
         # since that will break most of the default validation.
         if isinstance(data, S3PlaceholderFile):
-            data = data.name
+            # Create a FieldFile instance instead of using a raw string
+            # This ensures compatibility with Django 5.1's file name validation
+            file_name = data.name
+            if file_name:
+                # Get the current value to see if we already have a file
+                current_file = getattr(instance, self.name, None)
+                if current_file:
+                    # If we have a current file, create a new instance with the same storage
+                    field_file = self.attr_class(instance, self, file_name)
+                    field_file.storage = self.storage
+                else:
+                    # Create a new field file with the proper name
+                    field_file = FieldFile(instance, self, file_name)
+                field_file._committed = True
+                data = field_file
+
         super().save_form_data(instance, data)
 
     def check(self, **kwargs: Any) -> list[CheckMessage]:
